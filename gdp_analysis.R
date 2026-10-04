@@ -6,6 +6,7 @@ library(tidyverse)
 library(readxl)
 library(janitor)
 library(scales)
+
 # Check the worksheets in the Excel file
 excel_sheets("data/gdp_source.xlsx")
 # Import the GDP dataset
@@ -120,9 +121,9 @@ p1 <- ggplot(
     title = "U.S. Real GDP Expenditure Components, 1947–2026",
     subtitle = "Quarterly expenditure components of real GDP",
     x = NULL,
-    y = "Real Expenditure",
+    y = "Billions of Chained 2017 Dollars (SAAR)",
     color = NULL,
-    caption = "Analysis conducted in R"
+    caption = "Source: U.S. Bureau of Economic Analysis via FRED"
   ) +
   scale_x_date(
     breaks = as.Date(c(
@@ -171,15 +172,94 @@ ggsave(
 )
 
 
-# Reshape expenditure shares for visualization
-shares_long <- gdp |>
+# Import nominal GDP expenditure series from FRED
+gdp_nominal <- read_csv(
+  "data/GDP.csv",
+  show_col_types = FALSE
+)
+
+pcec_nominal <- read_csv(
+  "data/PCEC.csv",
+  show_col_types = FALSE
+)
+
+gpdi_nominal <- read_csv(
+  "data/GPDI.csv",
+  show_col_types = FALSE
+)
+
+gce_nominal <- read_csv(
+  "data/GCE.csv",
+  show_col_types = FALSE
+)
+
+exports_nominal <- read_csv(
+  "data/EXPGS.csv",
+  show_col_types = FALSE
+)
+
+imports_nominal <- read_csv(
+  "data/IMPGS.csv",
+  show_col_types = FALSE
+)
+
+names(gdp_nominal)
+names(pcec_nominal)
+names(gpdi_nominal)
+names(gce_nominal)
+names(exports_nominal)
+names(imports_nominal)
+
+head(gdp_nominal)
+head(pcec_nominal)
+
+# Combine nominal expenditure series into one dataset
+nominal_gdp <- gdp_nominal |>
+  inner_join(pcec_nominal, by = "observation_date") |>
+  inner_join(gpdi_nominal, by = "observation_date") |>
+  inner_join(gce_nominal, by = "observation_date") |>
+  inner_join(exports_nominal, by = "observation_date") |>
+  inner_join(imports_nominal, by = "observation_date") |>
+  rename(
+    date = observation_date,
+    nominal_gdp = GDP,
+    consumption = PCEC,
+    investment = GPDI,
+    government = GCE,
+    exports = EXPGS,
+    imports = IMPGS
+  )
+
+glimpse(nominal_gdp)
+
+head(nominal_gdp)
+
+tail(nominal_gdp)
+
+# Calculate expenditure shares using nominal/current-dollar data
+nominal_gdp <- nominal_gdp |>
+  mutate(
+    consumption_share = consumption / nominal_gdp * 100,
+    investment_share = investment / nominal_gdp * 100,
+    government_share = government / nominal_gdp * 100,
+    exports_share = exports / nominal_gdp * 100,
+    imports_share = imports / nominal_gdp * 100,
+    net_exports = exports - imports,
+    net_exports_share = net_exports / nominal_gdp * 100
+  )
+
+glimpse(nominal_gdp)
+
+
+# Reshape nominal expenditure shares for visualization
+shares_long <- nominal_gdp |>
   select(
     date,
-    c_share_percent,
-    i_share_percent,
-    g_share_percent,
-    x_share_percent,
-    m_share_percent
+    consumption_share,
+    investment_share,
+    government_share,
+    exports_share,
+    imports_share
   ) |>
   pivot_longer(
     cols = -date,
@@ -189,11 +269,11 @@ shares_long <- gdp |>
   mutate(
     component = recode(
       component,
-      c_share_percent = "Consumption",
-      i_share_percent = "Investment",
-      g_share_percent = "Government",
-      x_share_percent = "Exports",
-      m_share_percent = "Imports"
+      consumption_share = "Consumption",
+      investment_share = "Investment",
+      government_share = "Government",
+      exports_share = "Exports",
+      imports_share = "Imports"
     ),
     component = factor(
       component,
@@ -207,7 +287,10 @@ shares_long <- gdp |>
     )
   )
 
+head(shares_long)
 
+
+  
 # Create expenditure shares graph
 p2 <- ggplot(
   shares_long,
@@ -218,14 +301,14 @@ p2 <- ggplot(
   )
 ) +
   geom_line(linewidth = 0.9) +
-  labs(
-    title = "U.S. Expenditure Components as Shares of Real GDP, 1947–2026",
-    subtitle = "Quarterly expenditure components as percentages of real GDP",
-    x = NULL,
-    y = "Percent of Real GDP",
-    color = NULL,
-    caption = "Analysis conducted in R"
-  ) +
+    labs(
+      title = "U.S. Expenditure Components as Shares of GDP, 1947–2026",
+      subtitle = "Quarterly nominal expenditure components as percentages of nominal GDP",
+      x = NULL,
+      y = "Percent of GDP",
+      color = NULL,
+      caption = "Source: U.S. Bureau of Economic Analysis via FRED"
+    ) +
   scale_x_date(
     breaks = as.Date(c(
       paste0(seq(1950, 2020, 10), "-01-01"),
@@ -239,7 +322,6 @@ p2 <- ggplot(
     breaks = seq(0, 70, 10),
     labels = label_number(suffix = "%")
   ) +
-  
   
   theme_minimal(base_size = 12) +
   theme(
